@@ -1,0 +1,10 @@
+{
+  "name": "brewpub-costing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Your Mates brewpub recipe costing — static page plus a Netlify function over Netlify Blobs",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}
