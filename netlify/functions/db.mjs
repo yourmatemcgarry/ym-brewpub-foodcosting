@@ -6,13 +6,20 @@
 //   PUT    /api/db/:collection/:id   (JSON body) -> saves one ingredient / recipe / supplier / setting
 //   DELETE /api/db/:collection/:id
 //
-// First run: if the store is empty, it loads /seed.json from this site.
+// Starting data comes in "packs" (see PACKS below). Each pack is imported once:
+//   - on a brand-new store every pack is loaded;
+//   - on a store already in use, a new pack only ADDS documents whose ids don't exist yet.
+//     Nothing already saved on the site is ever overwritten or brought back after being deleted.
 // Passphrase: set COSTING_KEY in Netlify (Site configuration -> Environment variables).
 // Every request must then send it in the x-costing-key header. Delete the variable to switch it off.
 
 import { getStore } from "@netlify/blobs";
 
-const COLLECTIONS = ["ingredients", "recipes", "suppliers", "meta"];
+const COLLECTIONS = ["ingredients", "recipes", "suppliers", "meta", "locations"];
+const PACKS = [
+  { id: "brewpub-initial", file: "/seed.json" },               // Brewpub, Warana (first release)
+  { id: "crackerjack-initial", file: "/seed-crackerjack.json" }, // Crackerjack, Cooroy (added 13 Nov 2026)
+];
 const ID_RE = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
 const MAX_DOC_BYTES = 256 * 1024;
 
@@ -32,15 +39,34 @@ async function readCollection(store, col) {
   return (await store.get("col/" + col, { type: "json" })) || {};
 }
 
-async function importSeed(store, reqUrl) {
-  const res = await fetch(new URL("/seed.json", reqUrl));
-  if (!res.ok) throw new Error("seed.json not found (" + res.status + ")");
-  const seed = await res.json();
-  for (const col of COLLECTIONS) await store.setJSON("col/" + col, seed[col] || {});
-  await store.setJSON("seed-info", { importedAt: new Date().toISOString(), builtAt: seed.builtAt || null });
-  const rev = newRev();
-  await store.set("rev", rev);
-  return rev;
+// Imports any pack this store hasn't had yet. Returns true if anything changed.
+async function importPacks(store, reqUrl) {
+  const fresh = !(await store.get("rev"));
+  const done = (await store.get("packs", { type: "json" })) || [];
+  // Stores created before packs existed already hold the brewpub data from seed.json
+  if (!fresh && !done.length && (await store.get("seed-info"))) done.push("brewpub-initial");
+  let changed = false;
+  for (const pack of PACKS) {
+    if (done.includes(pack.id)) continue;
+    const res = await fetch(new URL(pack.file, reqUrl));
+    if (!res.ok) throw new Error(pack.file + " not found (" + res.status + ")");
+    const seed = await res.json();
+    for (const col of COLLECTIONS) {
+      const incoming = seed[col] || {};
+      if (!Object.keys(incoming).length) continue;
+      const docs = await readCollection(store, col);
+      for (const [id, doc] of Object.entries(incoming)) if (!(id in docs)) docs[id] = doc;
+      await store.setJSON("col/" + col, docs);
+    }
+    done.push(pack.id);
+    changed = true;
+  }
+  if (changed || fresh) {
+    await store.setJSON("packs", done);
+    await store.setJSON("seed-info", { importedAt: new Date().toISOString(), packs: done });
+    await store.set("rev", newRev());
+  }
+  return changed;
 }
 
 export default async (req) => {
@@ -54,8 +80,8 @@ export default async (req) => {
   const store = getStore({ name: "brewpub-costing", consistency: "strong" });
 
   if (req.method === "GET" && parts.length === 0) {
-    let rev = await store.get("rev");
-    if (!rev) rev = await importSeed(store, req.url);
+    await importPacks(store, req.url);
+    const rev = await store.get("rev");
     if (url.searchParams.get("since") === rev) return json({ rev, unchanged: true });
     const out = { rev };
     for (const col of COLLECTIONS) out[col] = await readCollection(store, col);
