@@ -32,6 +32,7 @@ It's a static page plus one small Netlify function. Data is stored in Netlify Bl
 - **Starting data is loaded once per pack.** `db.mjs` lists the packs (`seed.json`, `seed-crackerjack.json`). A brand-new site loads them all. On a site already in use, a new pack only *adds* documents that aren't there yet, so edits made on the site are never overwritten and deleted items don't come back. Uploading a changed seed file later does nothing: to load more data, add a new pack.
 - **Updating the app:** upload a new `public/index.html` to GitHub and Netlify redeploys. The data is untouched.
 - **Several people at once:** each save writes one ingredient, recipe or supplier. Open pages check for other people's changes every 20 seconds and whenever the tab comes back into view.
+- **Menu drafts** are saved with the rest of the data (in the `meta` collection, one document per draft, plus draft copies of dishes in `recipes`). Publishing a draft archives dishes that come off the menu; nothing is deleted.
 - **Backups:** *Export to Excel* downloads the ingredient list, recipe costs, recipe lines and all quote lines.
 - **The claude.ai version** keeps its own copy of the data. Once this site is live, use this one only, so the two don't drift apart.
 
